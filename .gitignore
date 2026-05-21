@@ -1,0 +1,13 @@
+.next/
+node_modules/
+.env
+.env.local
+.env.*.local
+.npm-cache/
+.playwright-browsers/
+.deploy-ssh/
+next-dev.*.log
+dist/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
