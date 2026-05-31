@@ -317,8 +317,15 @@ export function StudentAgentApp({
   async function generateRecommendations() {
     await runAction(async () => {
       const response = await fetch("/api/recommendations/generate", { method: "POST" });
-      const payload = await readJson<{ message?: string }>(response, "לא הצלחתי ליצור המלצות");
-      setNotice(payload.message || "נוצרו המלצות חדשות");
+      const payload = await readJson<{
+        message?: string;
+        created?: number;
+        calendarWarning?: string | null;
+      }>(response, "לא הצלחתי ליצור המלצות");
+
+      const parts = [payload.message || (payload.created ? "נוצרו המלצות חדשות" : "לא נוצרו המלצות")];
+      if (payload.calendarWarning) parts.push(payload.calendarWarning);
+      setNotice(parts.join(" "));
     });
   }
 
@@ -760,7 +767,7 @@ export function StudentAgentApp({
         <div className="section-title">
           <div>
             <h2>המלצות</h2>
-            <p>הסוכן מציע זמנים לפי דחיפות, עדיפות וזמינות. אירוע נוצר רק אחרי אישור.</p>
+            <p>הסוכן מציע זמנים לפי דדליין, עדיפות וזמינות. אפשר גם בלי יומן מחובר. אירוע נוצר רק אחרי לחיצה על &quot;אשר שיבוץ&quot;.</p>
           </div>
           <button className="button primary" type="button" onClick={generateRecommendations} disabled={loading}>
             <Sparkles size={18} />

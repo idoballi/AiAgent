@@ -23,11 +23,16 @@ function eventToBusy(event: CalendarEvent) {
 }
 
 function sessionToBusy(session: DbTaskSession) {
-  if (!session.start_time || !session.end_time || session.status === "rejected") return null;
+  if (session.status !== "scheduled" || !session.start_time || !session.end_time) return null;
   return {
     start: new Date(session.start_time),
     end: new Date(session.end_time)
   };
+}
+
+function isOpenTask(task: DbTask) {
+  const closed = new Set(["completed", "done", "הושלם", "rejected", "scheduled"]);
+  return !closed.has(task.status);
 }
 
 export function findFreeWindows(
@@ -94,9 +99,7 @@ function taskScore(task: DbTask, now = new Date()) {
 }
 
 export function rankTasks(tasks: DbTask[]) {
-  return tasks
-    .filter((task) => !["completed", "done", "הושלם"].includes(task.status))
-    .sort((a, b) => taskScore(b) - taskScore(a));
+  return tasks.filter(isOpenTask).sort((a, b) => taskScore(b) - taskScore(a));
 }
 
 export function buildStudyRecommendations(input: {
@@ -104,9 +107,14 @@ export function buildStudyRecommendations(input: {
   events: CalendarEvent[];
   sessions: DbTaskSession[];
   max?: number;
+  now?: Date;
 }) {
-  const freeWindows = findFreeWindows(input.events, input.sessions);
+  const now = input.now ?? new Date();
+  const freeWindows = findFreeWindows(input.events, input.sessions, 7, now);
   const rankedTasks = rankTasks(input.tasks);
+  const tasksWithPending = new Set(
+    input.sessions.filter((session) => session.status === "pending").map((session) => session.task_id)
+  );
   const recommendations: Array<{
     task: DbTask;
     start: Date;
@@ -114,44 +122,47 @@ export function buildStudyRecommendations(input: {
     reason: string;
   }> = [];
 
-  const usedWindows: FreeWindow[] = [];
+  const usedStarts = new Set<number>();
 
   for (const task of rankedTasks) {
     if (recommendations.length >= (input.max ?? 5)) break;
+    if (tasksWithPending.has(task.tasks_id)) continue;
 
     const minutes = Math.max(30, Math.min(Number(task.estimated_minutes ?? 60), 180));
     const deadline = task.deadline ? new Date(task.deadline) : null;
+    const deadlineApplies = Boolean(deadline && deadline.getTime() > now.getTime());
 
     const match = freeWindows.find((window) => {
-      const available = durationMinutes(window.start, window.end);
-      const notUsed = !usedWindows.some(
-        (used) => used.start.getTime() === window.start.getTime() && used.end.getTime() === window.end.getTime()
-      );
-      const beforeDeadline = !deadline || window.start < deadline;
+      const sessionStart = new Date(Math.max(window.start.getTime(), now.getTime() + 5 * 60_000));
+      const available = durationMinutes(sessionStart, window.end);
+      const slotKey = sessionStart.getTime();
+      const notUsed = !usedStarts.has(slotKey);
+      const beforeDeadline = !deadlineApplies || sessionStart < deadline!;
       return available >= minutes && notUsed && beforeDeadline;
     });
 
     if (!match) continue;
 
-    const end = new Date(match.start);
+    const start = new Date(Math.max(match.start.getTime(), now.getTime() + 5 * 60_000));
+    const end = new Date(start);
     end.setMinutes(end.getMinutes() + minutes);
     const priorityLabel = Number(task.priority ?? 3) >= 4 ? "גבוהה" : "רגילה";
     const title = task.task_title || "המשימה";
+    const deadlineText = deadlineApplies
+      ? formatDateTime(task.deadline, { dateStyle: "medium", timeStyle: undefined })
+      : "לא נקבע";
 
     recommendations.push({
       task,
-      start: match.start,
+      start,
       end,
-      reason: `יש לך חלון פנוי ביום ${formatShortDay(match.start)} בין ${formatTimeRange(
-        match.start,
-        match.end
-      )}. בגלל ש${title} מתקרבת לדדליין ${formatDateTime(
-        task.deadline,
-        { dateStyle: "medium", timeStyle: undefined }
-      )} ובעדיפות ${priorityLabel}, אני ממליץ לשבץ שם סשן עבודה.`
+      reason: `יש לך חלון פנוי ביום ${formatShortDay(start)} בין ${formatTimeRange(
+        start,
+        end
+      )}. בגלל ש"${title}" ${deadlineApplies ? `מתקרבת לדדליין ${deadlineText}` : "פתוחה לעבודה"} ובעדיפות ${priorityLabel}, אני ממליץ לשבץ שם סשן עבודה.`
     });
 
-    usedWindows.push(match);
+    usedStarts.add(start.getTime());
   }
 
   return recommendations;
