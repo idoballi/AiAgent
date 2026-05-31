@@ -36,6 +36,7 @@ const views: Array<{ key: ViewKey; label: string; icon: ElementType }> = [
 ];
 
 const statusLabels: Record<string, string> = {
+  new: "פתוח",
   pending: "ממתין לאישור",
   approved: "אושר",
   scheduled: "שובץ ביומן",
@@ -47,6 +48,7 @@ const statusLabels: Record<string, string> = {
 };
 
 const statusClass: Record<string, string> = {
+  new: "neutral",
   pending: "pending",
   approved: "pending",
   scheduled: "scheduled",
@@ -86,6 +88,26 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 
 function StatusBadge({ status }: { status: string | null | undefined }) {
   return <span className={`badge ${classForStatus(status)}`}>{labelForStatus(status)}</span>;
+}
+
+async function readJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const text = await response.text();
+  let payload: unknown = {};
+
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      throw new Error(fallbackMessage);
+    }
+  }
+
+  if (!response.ok) {
+    const errorMessage = typeof payload === "object" && payload && "error" in payload ? payload.error : null;
+    throw new Error(typeof errorMessage === "string" ? errorMessage : fallbackMessage);
+  }
+
+  return payload as T;
 }
 
 function NavButton({
@@ -133,6 +155,7 @@ export function StudentAgentApp({
   const supabase = createClient();
 
   const upcomingTasks = useMemo(() => state.tasks.filter(isUpcoming).slice(0, 6), [state.tasks]);
+  const dashboardTasks = useMemo(() => state.tasks.slice(0, 6), [state.tasks]);
   const pendingSessions = useMemo(
     () => state.sessions.filter((session) => session.status === "pending"),
     [state.sessions]
@@ -144,7 +167,7 @@ export function StudentAgentApp({
 
   async function refreshState() {
     const response = await fetch("/api/state");
-    const payload = await response.json();
+    const payload = await readJson<AppState & { error?: string }>(response, "לא הצלחתי לרענן נתונים");
     if (!response.ok) {
       throw new Error(payload.error || "לא הצלחתי לרענן נתונים");
     }
@@ -200,8 +223,7 @@ export function StudentAgentApp({
           priority: Number(taskForm.priority)
         })
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "לא הצלחתי להוסיף משימה");
+      await readJson<DbTask>(response, "לא הצלחתי להוסיף משימה");
       setTaskForm({
         task_title: "",
         description: "",
@@ -212,7 +234,7 @@ export function StudentAgentApp({
         priority: 3,
         status: "open"
       });
-      setNotice("המשימה נשמרה");
+      setNotice("המשימה נשמרה. כדי ליצור אירוע ביומן צריך ליצור המלצה ואז לאשר שיבוץ.");
     });
   }
 
@@ -223,8 +245,7 @@ export function StudentAgentApp({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status })
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "לא הצלחתי לעדכן סטטוס");
+      await readJson<{ ok: boolean }>(response, "לא הצלחתי לעדכן סטטוס");
       setNotice("הסטטוס עודכן");
     });
   }
@@ -240,8 +261,7 @@ export function StudentAgentApp({
       const response = await fetch(`/api/tasks/${task.tasks_id}`, {
         method: "DELETE"
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "לא הצלחתי למחוק את המשימה");
+      const payload = await readJson<{ message?: string }>(response, "לא הצלחתי למחוק את המשימה");
       setNotice(payload.message || "המשימה נמחקה");
     });
   }
@@ -273,16 +293,14 @@ export function StudentAgentApp({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message })
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "לא הצלחתי לשלוח הודעה");
+      await readJson<{ ok?: boolean }>(response, "לא הצלחתי לשלוח הודעה");
     });
   }
 
   async function generateRecommendations() {
     await runAction(async () => {
       const response = await fetch("/api/recommendations/generate", { method: "POST" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "לא הצלחתי ליצור המלצות");
+      const payload = await readJson<{ message?: string }>(response, "לא הצלחתי ליצור המלצות");
       setNotice(payload.message || "נוצרו המלצות חדשות");
     });
   }
@@ -294,8 +312,7 @@ export function StudentAgentApp({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action })
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "לא הצלחתי לעדכן המלצה");
+      const payload = await readJson<{ message?: string }>(response, "לא הצלחתי לעדכן המלצה");
       setNotice(payload.message || "ההמלצה עודכנה");
       if (action === "alternate") {
         await fetch("/api/recommendations/generate", { method: "POST" });
@@ -311,8 +328,7 @@ export function StudentAgentApp({
       const response = await fetch(`/api/calendar/events/${encodeURIComponent(event.id)}`, {
         method: "DELETE"
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "לא הצלחתי למחוק את האירוע");
+      const payload = await readJson<{ message?: string }>(response, "לא הצלחתי למחוק את האירוע");
       setNotice(payload.message || "האירוע נמחק מהיומן");
     });
   }
@@ -322,7 +338,18 @@ export function StudentAgentApp({
       <article className="row" key={task.tasks_id}>
         <div className="row-title">
           <strong>{task.task_title || "משימה ללא כותרת"}</strong>
-          <StatusBadge status={task.status} />
+          <div className="row-actions">
+            <StatusBadge status={task.status} />
+            <button
+              className="button danger compact-button"
+              type="button"
+              onClick={() => deleteTask(task)}
+              disabled={loading}
+            >
+              <Trash2 size={16} />
+              מחק משימה
+            </button>
+          </div>
         </div>
         {task.description ? <div className="muted">{task.description}</div> : null}
         <div className="meta">
@@ -348,10 +375,6 @@ export function StudentAgentApp({
           >
             <CheckCircle2 size={16} />
             הושלם
-          </button>
-          <button className="button danger" type="button" onClick={() => deleteTask(task)} disabled={loading}>
-            <Trash2 size={16} />
-            מחק
           </button>
         </div>
       </article>
@@ -471,7 +494,7 @@ export function StudentAgentApp({
               </button>
             </div>
             <div className="list">
-              {upcomingTasks.length ? upcomingTasks.map(renderTask) : <EmptyState>אין עדיין משימות</EmptyState>}
+              {dashboardTasks.length ? dashboardTasks.map(renderTask) : <EmptyState>אין עדיין משימות</EmptyState>}
             </div>
           </div>
 

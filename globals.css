@@ -442,6 +442,20 @@ a {
   overflow-wrap: anywhere;
 }
 
+.row-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.compact-button {
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
 .meta {
   color: var(--muted);
   display: flex;
