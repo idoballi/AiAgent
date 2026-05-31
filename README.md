@@ -72,6 +72,14 @@ In Supabase Auth settings:
    - `https://www.googleapis.com/auth/calendar.readonly`
    - `https://www.googleapis.com/auth/calendar.events`
 
+For email magic links in a server-rendered Next.js app, use a callback URL that sends a `token_hash`:
+
+```text
+{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email&next=/app
+```
+
+You can set this in Supabase Dashboard -> Authentication -> Email Templates. This callback also still supports the normal OAuth `code` flow used by Google.
+
 The app stores Google OAuth tokens in the existing `users.google_access_token` and `users.google_refresh_token` columns. For a later production hardening pass, move those tokens to a private schema or Supabase Vault with a service-role-only server path.
 
 ## Google Calendar Flow
@@ -83,6 +91,21 @@ The app stores Google OAuth tokens in the existing `users.google_access_token` a
 5. Recommendations are saved in `task_sessions` with `pending` status.
 6. User clicks `אשר שיבוץ`.
 7. Only then the server creates the Google Calendar event and updates the session to `scheduled`.
+8. User can delete visible Google Calendar events from the calendar screen. The app asks for confirmation, deletes the event through the server, and clears the related scheduled recommendation if one exists.
+
+## Google App Name
+
+The name shown on the Google login/consent screen is controlled in Google Cloud, not in this codebase.
+
+To change it:
+
+1. Open Google Cloud Console.
+2. Go to APIs & Services -> OAuth consent screen.
+3. Edit App information.
+4. Set the app name to `סוכן לימודים חכם` or another public name you prefer.
+5. Save the change and wait a few minutes.
+
+The Supabase project ref `sfbsxqapnjbjcxlvubor.supabase.co` is the Supabase Auth domain. You can change the visible Google app name, but the generated Supabase project ref itself does not change unless you configure a custom auth domain in Supabase.
 
 ## OpenAI Behavior
 
