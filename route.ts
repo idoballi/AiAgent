@@ -1,54 +1,42 @@
 import { NextResponse } from "next/server";
-import type { EmailOtpType } from "@supabase/supabase-js";
+import { deleteCalendarEvent } from "@/lib/google-calendar";
 import { createClient } from "@/lib/supabase/server";
 
-export async function GET(request: Request) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get("code");
-  const tokenHash = requestUrl.searchParams.get("token_hash");
-  const type = requestUrl.searchParams.get("type") as EmailOtpType | null;
-  const next = requestUrl.searchParams.get("next") ?? "/app";
-  const redirectUrl = new URL(next, requestUrl.origin);
+type Params = {
+  params: Promise<{ id: string }>;
+};
 
-  if (!code && (!tokenHash || !type)) {
-    redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("error", "missing_code");
-    return NextResponse.redirect(redirectUrl);
-  }
-
+export async function DELETE(_request: Request, { params }: Params) {
+  const { id } = await params;
   const supabase = await createClient();
-  const authResponse = code
-    ? await supabase.auth.exchangeCodeForSession(code)
-    : await supabase.auth.verifyOtp({
-        token_hash: tokenHash!,
-        type: type!
-      });
-  const { data, error } = authResponse;
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
 
-  if (error || !data.user) {
-    redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("error", "auth_failed");
-    return NextResponse.redirect(redirectUrl);
+  if (!user) {
+    return NextResponse.json({ error: "צריך להתחבר מחדש" }, { status: 401 });
   }
 
-  const sessionWithProvider = data.session as typeof data.session & {
-    provider_token?: string;
-    provider_refresh_token?: string;
-  };
+  try {
+    await deleteCalendarEvent(supabase, user.id, id);
 
-  const profileUpdate: Record<string, string | null> = {
-    id: data.user.id,
-    email: data.user.email ?? null
-  };
+    await supabase
+      .from("task_sessions")
+      .update({
+        status: "rejected",
+        google_calendar_event_id: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq("user_id", user.id)
+      .eq("google_calendar_event_id", id);
 
-  if (sessionWithProvider?.provider_token) {
-    profileUpdate.google_access_token = sessionWithProvider.provider_token;
+    return NextResponse.json({ ok: true, message: "האירוע נמחק מהיומן" });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "לא הצלחתי למחוק את האירוע"
+      },
+      { status: 500 }
+    );
   }
-  if (sessionWithProvider?.provider_refresh_token) {
-    profileUpdate.google_refresh_token = sessionWithProvider.provider_refresh_token;
-  }
-
-  await supabase.from("users").upsert(profileUpdate, { onConflict: "id" });
-
-  return NextResponse.redirect(redirectUrl);
 }

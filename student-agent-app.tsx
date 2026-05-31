@@ -229,6 +229,23 @@ export function StudentAgentApp({
     });
   }
 
+  async function deleteTask(task: DbTask) {
+    const taskTitle = task.task_title || "משימה ללא כותרת";
+    const confirmed = window.confirm(
+      `למחוק את המשימה "${taskTitle}"? אם יש לה שיבוץ ביומן, גם האירוע ביומן יימחק.`
+    );
+    if (!confirmed) return;
+
+    await runAction(async () => {
+      const response = await fetch(`/api/tasks/${task.tasks_id}`, {
+        method: "DELETE"
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "לא הצלחתי למחוק את המשימה");
+      setNotice(payload.message || "המשימה נמחקה");
+    });
+  }
+
   async function sendChatMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const message = chatInput.trim();
@@ -331,6 +348,10 @@ export function StudentAgentApp({
           >
             <CheckCircle2 size={16} />
             הושלם
+          </button>
+          <button className="button danger" type="button" onClick={() => deleteTask(task)} disabled={loading}>
+            <Trash2 size={16} />
+            מחק
           </button>
         </div>
       </article>
