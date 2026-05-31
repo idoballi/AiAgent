@@ -1,7 +1,7 @@
 "use client";
 
 import type { ElementType, FormEvent } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
   CalendarCheck,
@@ -181,6 +181,16 @@ export function StudentAgentApp({
     () => state.sessions.filter((session) => session.status === "scheduled"),
     [state.sessions]
   );
+  const recommendationSessions = useMemo(
+    () => state.sessions.filter((session) => session.status === "pending" || session.status === "scheduled"),
+    [state.sessions]
+  );
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (activeView !== "chat") return;
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [activeView, state.messages.length, loading]);
 
   async function refreshState() {
     const response = await fetch("/api/state");
@@ -338,9 +348,6 @@ export function StudentAgentApp({
       });
       const payload = await readJson<{ message?: string }>(response, "לא הצלחתי לעדכן המלצה");
       setNotice(payload.message || "ההמלצה עודכנה");
-      if (action === "alternate") {
-        await fetch("/api/recommendations/generate", { method: "POST" });
-      }
     });
   }
 
@@ -556,13 +563,20 @@ export function StudentAgentApp({
   function renderChat() {
     return (
       <section className="panel chat-shell">
+        <div className="chat-header">
+          <h2>צ׳אט עם הסוכן</h2>
+          <p className="muted">שאל כל שאלה — הסוכן משתמש ב-OpenAI אם המפתח מוגדר בשרת.</p>
+        </div>
         <div className="messages">
           {state.messages.length ? (
-            state.messages.map((message) => (
-              <div className={`message ${message.role === "assistant" ? "assistant" : "user"}`} key={message.id}>
-                {message.chatInput}
-              </div>
-            ))
+            <>
+              {state.messages.map((message) => (
+                <div className={`message ${message.role === "assistant" ? "assistant" : "user"}`} key={message.id}>
+                  {message.chatInput}
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </>
           ) : (
             <EmptyState>כתוב לסוכן מה יש לך לעשות, והוא יעזור לפרק ולתעדף.</EmptyState>
           )}
@@ -775,10 +789,10 @@ export function StudentAgentApp({
           </button>
         </div>
         <div className="list">
-          {state.sessions.length ? (
-            state.sessions.map(renderRecommendation)
+          {recommendationSessions.length ? (
+            recommendationSessions.map(renderRecommendation)
           ) : (
-            <EmptyState>אין המלצות כרגע</EmptyState>
+            <EmptyState>אין המלצות כרגע — לחץ &quot;צור המלצות&quot;</EmptyState>
           )}
         </div>
         {scheduledSessions.length ? (

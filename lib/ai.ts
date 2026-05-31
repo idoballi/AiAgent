@@ -1,58 +1,36 @@
 import OpenAI from "openai";
 import type { CalendarEvent, DbMessage, DbTask, DbTaskSession } from "@/lib/types";
-import { findFreeWindows } from "@/lib/scheduling";
-import { formatDateTime, formatShortDay, formatTimeRange } from "@/lib/date-format";
+import { CHAT_SYSTEM_PROMPT } from "@/lib/ai-prompt";
 
-function fallbackReply(input: {
-  message: string;
-  tasks: DbTask[];
-  sessions: DbTaskSession[];
-  events: CalendarEvent[];
-}) {
-  const freeWindow = findFreeWindows(input.events, input.sessions, 7)[0];
-  const urgentTask = input.tasks
-    .filter((task) => task.status !== "completed")
-    .sort((a, b) => {
-      const aTime = a.deadline ? new Date(a.deadline).getTime() : Number.MAX_SAFE_INTEGER;
-      const bTime = b.deadline ? new Date(b.deadline).getTime() : Number.MAX_SAFE_INTEGER;
-      return aTime - bTime;
-    })[0];
-
-  if (freeWindow && urgentTask) {
-    return `מצאתי כיוון טוב: יש לך חלון פנוי ביום ${formatShortDay(
-      freeWindow.start
-    )} בין ${formatTimeRange(freeWindow.start, freeWindow.end)}. בגלל ש${urgentTask.task_title ?? "המשימה"} לדדליין ${formatDateTime(
-      urgentTask.deadline,
-      { dateStyle: "medium", timeStyle: undefined }
-    )}, כדאי ליצור המלצה לשיבוץ ואז לאשר אותה לפני יצירת אירוע ביומן.`;
-  }
-
-  if (!process.env.OPENAI_API_KEY) {
-    return "קיבלתי. כדי שאוכל לענות כ-AI מלא צריך להגדיר OPENAI_API_KEY בשרת. בינתיים אפשר להוסיף משימה וליצור המלצות לפי היומן.";
-  }
-
-  return "קיבלתי. כדאי להוסיף את המשימה עם דדליין וזמן משוער, ואז אוכל להציע חלונות למידה מדויקים יותר.";
+function isSmallTalk(message: string) {
+  const normalized = message.trim().toLowerCase();
+  const patterns = [
+    /^מה שלומך/,
+    /^היי/,
+    /^שלום/,
+    /^תודה/,
+    /^בוקר טוב/,
+    /^ערב טוב/,
+    /^how are you/
+  ];
+  return patterns.some((pattern) => pattern.test(normalized));
 }
 
-export async function generateAssistantReply(input: {
-  userMessage: string;
-  recentMessages: DbMessage[];
+function smallTalkReply(message: string) {
+  if (/מה שלומך|how are you/i.test(message)) {
+    return "בסדר גמור, תודה ששאלת! איך אפשר לעזור לך היום — משימות, דדליינים או שיבוץ זמן ללמידה?";
+  }
+  if (/תודה/.test(message)) {
+    return "בכיף! אם תרצה, אפשר להמשיך עם משימה חדשה או המלצות לשיבוץ.";
+  }
+  return "שלום! אני כאן לעזור עם משימות, דדליינים ותכנון למידה. מה תרצה לעשות?";
+}
+
+function buildContextBlock(input: {
   tasks: DbTask[];
   sessions: DbTaskSession[];
   events: CalendarEvent[];
 }) {
-  if (!process.env.OPENAI_API_KEY) {
-    return fallbackReply({
-      message: input.userMessage,
-      tasks: input.tasks,
-      sessions: input.sessions,
-      events: input.events
-    });
-  }
-
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_MODEL || "gpt-5.2";
-
   const taskSummary = input.tasks
     .slice(0, 12)
     .map(
@@ -80,20 +58,7 @@ export async function generateAssistantReply(input: {
     .map((event) => `- ${event.summary}: ${event.start} עד ${event.end}`)
     .join("\n");
 
-  const conversation = input.recentMessages
-    .map((message) => `${message.role === "assistant" ? "סוכן" : "סטודנט"}: ${message.chatInput || ""}`)
-    .join("\n");
-
-  const response = await client.responses.create({
-    model,
-    instructions: [
-      "אתה סוכן פרודוקטיביות לסטודנטים. כל התשובות שלך חייבות להיות בעברית.",
-      "ענה בקצרה, באופן מעשי, וחברי. שאל שאלות המשך רק אם חסר מידע חשוב.",
-      "לעולם אל תגיד שיצרת אירוע ביומן. מותר רק להציע שיבוץ ולבקש אישור מפורש.",
-      "השתמש בדדליין, עומס יומן, עדיפות וזמן משוער כדי להסביר המלצות.",
-      "אם המשתמש מבקש לשבץ, אמור שצריך לאשר המלצה לפני יצירת אירוע ביומן."
-    ].join("\n"),
-    input: `נתוני מערכת עדכניים:
+  return `נתוני מערכת (להקשר בלבד):
 משימות:
 ${taskSummary || "אין משימות"}
 
@@ -101,22 +66,63 @@ ${taskSummary || "אין משימות"}
 ${sessionSummary || "אין סשנים"}
 
 אירועי יומן:
-${eventSummary || "אין אירועים או שהיומן לא מחובר"}
+${eventSummary || "אין אירועים או שהיומן לא מחובר"}`;
+}
 
-עשר ההודעות האחרונות:
-${conversation || "אין היסטוריה"}
+export async function generateAssistantReply(input: {
+  userMessage: string;
+  recentMessages: DbMessage[];
+  tasks: DbTask[];
+  sessions: DbTaskSession[];
+  events: CalendarEvent[];
+}): Promise<{ reply: string; usedOpenAi: boolean }> {
+  if (isSmallTalk(input.userMessage)) {
+    return { reply: smallTalkReply(input.userMessage), usedOpenAi: false };
+  }
 
-הודעת המשתמש הנוכחית:
-${input.userMessage}`
-  });
+  if (!process.env.OPENAI_API_KEY) {
+    return {
+      reply:
+        "אין מפתח OpenAI בשרת (OPENAI_API_KEY). הוסף אותו ב-Vercel כדי לקבל תשובות חכמות. בינתיים: ספר לי במשפט מה אתה צריך — משימה, דדליין, או שיבוץ — ואנחה אותך בלשונית המתאימה.",
+      usedOpenAi: false
+    };
+  }
 
-  return (
-    response.output_text?.trim() ||
-    fallbackReply({
-      message: input.userMessage,
-      tasks: input.tasks,
-      sessions: input.sessions,
-      events: input.events
-    })
-  );
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+  const history = input.recentMessages
+    .filter((message) => message.chatInput?.trim())
+    .map((message) => ({
+      role: (message.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
+      content: message.chatInput!.trim()
+    }));
+
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: "system", content: CHAT_SYSTEM_PROMPT },
+    { role: "system", content: buildContextBlock(input) },
+    ...history.slice(-8),
+    { role: "user", content: input.userMessage }
+  ];
+
+  try {
+    const response = await client.chat.completions.create({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 500
+    });
+
+    const text = response.choices[0]?.message?.content?.trim();
+    if (text) {
+      return { reply: text, usedOpenAi: true };
+    }
+  } catch {
+    // fall through
+  }
+
+  return {
+    reply: "לא הצלחתי להתחבר ל-OpenAI כרגע. נסה שוב בעוד רגע, או בדוק ש-OPENAI_API_KEY מוגדר ב-Vercel.",
+    usedOpenAi: false
+  };
 }

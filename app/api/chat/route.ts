@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     events = [];
   }
 
-  const reply = await generateAssistantReply({
+  const { reply } = await generateAssistantReply({
     userMessage: cleanMessage,
     recentMessages,
     tasks: (tasksResult.data ?? []) as DbTask[],

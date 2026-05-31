@@ -102,6 +102,102 @@ export function rankTasks(tasks: DbTask[]) {
   return tasks.filter(isOpenTask).sort((a, b) => taskScore(b) - taskScore(a));
 }
 
+function slotOverlapsExcluded(start: Date, end: Date, excluded: Array<{ start: Date; end: Date }>) {
+  return excluded.some((slot) => start < slot.end && end > slot.start);
+}
+
+function collectExcludedSlots(sessions: DbTaskSession[], taskId?: string) {
+  return sessions
+    .filter((session) => {
+      if (!session.start_time || !session.end_time) return false;
+      if (session.status !== "rejected") return false;
+      if (taskId && session.task_id !== taskId) return false;
+      return true;
+    })
+    .map((session) => ({
+      start: new Date(session.start_time!),
+      end: new Date(session.end_time!)
+    }));
+}
+
+function pickNextSlot(input: {
+  task: DbTask;
+  freeWindows: FreeWindow[];
+  excluded: Array<{ start: Date; end: Date }>;
+  usedStarts: Set<number>;
+  now: Date;
+}) {
+  const minutes = Math.max(30, Math.min(Number(input.task.estimated_minutes ?? 60), 180));
+  const deadline = input.task.deadline ? new Date(input.task.deadline) : null;
+  const deadlineApplies = Boolean(deadline && deadline.getTime() > input.now.getTime());
+  const stepMs = 30 * 60_000;
+
+  for (const window of input.freeWindows) {
+    let candidateStart = new Date(Math.max(window.start.getTime(), input.now.getTime() + 5 * 60_000));
+
+    while (durationMinutes(candidateStart, window.end) >= minutes) {
+      const candidateEnd = new Date(candidateStart);
+      candidateEnd.setMinutes(candidateEnd.getMinutes() + minutes);
+      const slotKey = candidateStart.getTime();
+      const beforeDeadline = !deadlineApplies || candidateStart < deadline!;
+      const available = !input.usedStarts.has(slotKey) && !slotOverlapsExcluded(candidateStart, candidateEnd, input.excluded);
+
+      if (beforeDeadline && available) {
+        return { start: candidateStart, end: candidateEnd, minutes };
+      }
+
+      candidateStart = new Date(candidateStart.getTime() + stepMs);
+    }
+  }
+
+  return null;
+}
+
+function buildReason(task: DbTask, start: Date, end: Date, deadlineApplies: boolean) {
+  const priorityLabel = Number(task.priority ?? 3) >= 4 ? "גבוהה" : "רגילה";
+  const title = task.task_title || "המשימה";
+  const deadlineText = deadlineApplies
+    ? formatDateTime(task.deadline, { dateStyle: "medium", timeStyle: undefined })
+    : "לא נקבע";
+
+  return `יש לך חלון פנוי ביום ${formatShortDay(start)} בין ${formatTimeRange(
+    start,
+    end
+  )}. בגלל ש"${title}" ${deadlineApplies ? `מתקרבת לדדליין ${deadlineText}` : "פתוחה לעבודה"} ובעדיפות ${priorityLabel}, אני ממליץ לשבץ שם סשן עבודה.`;
+}
+
+export function buildAlternateRecommendation(input: {
+  task: DbTask;
+  events: CalendarEvent[];
+  sessions: DbTaskSession[];
+  now?: Date;
+}) {
+  const now = input.now ?? new Date();
+  const freeWindows = findFreeWindows(input.events, input.sessions, 7, now);
+  const excluded = collectExcludedSlots(input.sessions, input.task.tasks_id);
+  const usedStarts = new Set<number>();
+
+  const slot = pickNextSlot({
+    task: input.task,
+    freeWindows,
+    excluded,
+    usedStarts,
+    now
+  });
+
+  if (!slot) return null;
+
+  const deadline = input.task.deadline ? new Date(input.task.deadline) : null;
+  const deadlineApplies = Boolean(deadline && deadline.getTime() > now.getTime());
+
+  return {
+    task: input.task,
+    start: slot.start,
+    end: slot.end,
+    reason: buildReason(input.task, slot.start, slot.end, deadlineApplies)
+  };
+}
+
 export function buildStudyRecommendations(input: {
   tasks: DbTask[];
   events: CalendarEvent[];
@@ -115,6 +211,7 @@ export function buildStudyRecommendations(input: {
   const tasksWithPending = new Set(
     input.sessions.filter((session) => session.status === "pending").map((session) => session.task_id)
   );
+  const excluded = collectExcludedSlots(input.sessions);
   const recommendations: Array<{
     task: DbTask;
     start: Date;
@@ -128,41 +225,27 @@ export function buildStudyRecommendations(input: {
     if (recommendations.length >= (input.max ?? 5)) break;
     if (tasksWithPending.has(task.tasks_id)) continue;
 
-    const minutes = Math.max(30, Math.min(Number(task.estimated_minutes ?? 60), 180));
+    const slot = pickNextSlot({
+      task,
+      freeWindows,
+      excluded,
+      usedStarts,
+      now
+    });
+
+    if (!slot) continue;
+
     const deadline = task.deadline ? new Date(task.deadline) : null;
     const deadlineApplies = Boolean(deadline && deadline.getTime() > now.getTime());
 
-    const match = freeWindows.find((window) => {
-      const sessionStart = new Date(Math.max(window.start.getTime(), now.getTime() + 5 * 60_000));
-      const available = durationMinutes(sessionStart, window.end);
-      const slotKey = sessionStart.getTime();
-      const notUsed = !usedStarts.has(slotKey);
-      const beforeDeadline = !deadlineApplies || sessionStart < deadline!;
-      return available >= minutes && notUsed && beforeDeadline;
-    });
-
-    if (!match) continue;
-
-    const start = new Date(Math.max(match.start.getTime(), now.getTime() + 5 * 60_000));
-    const end = new Date(start);
-    end.setMinutes(end.getMinutes() + minutes);
-    const priorityLabel = Number(task.priority ?? 3) >= 4 ? "גבוהה" : "רגילה";
-    const title = task.task_title || "המשימה";
-    const deadlineText = deadlineApplies
-      ? formatDateTime(task.deadline, { dateStyle: "medium", timeStyle: undefined })
-      : "לא נקבע";
-
     recommendations.push({
       task,
-      start,
-      end,
-      reason: `יש לך חלון פנוי ביום ${formatShortDay(start)} בין ${formatTimeRange(
-        start,
-        end
-      )}. בגלל ש"${title}" ${deadlineApplies ? `מתקרבת לדדליין ${deadlineText}` : "פתוחה לעבודה"} ובעדיפות ${priorityLabel}, אני ממליץ לשבץ שם סשן עבודה.`
+      start: slot.start,
+      end: slot.end,
+      reason: buildReason(task, slot.start, slot.end, deadlineApplies)
     });
 
-    usedStarts.add(start.getTime());
+    usedStarts.add(slot.start.getTime());
   }
 
   return recommendations;

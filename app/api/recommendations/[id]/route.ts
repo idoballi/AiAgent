@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createCalendarStudyEvent } from "@/lib/google-calendar";
+import { createCalendarStudyEvent, getCalendarEvents } from "@/lib/google-calendar";
 import { parseRequestJson } from "@/lib/api-json";
-import type { DbTaskSession } from "@/lib/types";
+import { formatDateTime, formatTimeRange } from "@/lib/date-format";
+import { buildAlternateRecommendation } from "@/lib/scheduling";
+import type { CalendarEvent, DbTask, DbTaskSession } from "@/lib/types";
 
 type Params = {
   params: Promise<{ id: string }>;
@@ -36,16 +38,76 @@ export async function PATCH(request: Request, { params }: Params) {
 
   const session = data as DbTaskSession;
 
-  if (action === "reject" || action === "alternate") {
+  if (action === "reject") {
     await supabase
       .from("task_sessions")
       .update({ status: "rejected", updated_at: new Date().toISOString() })
       .eq("session_id", id)
       .eq("user_id", user.id);
 
+    return NextResponse.json({ ok: true, message: "ההמלצה נדחתה" });
+  }
+
+  if (action === "alternate") {
+    await supabase
+      .from("task_sessions")
+      .update({ status: "rejected", updated_at: new Date().toISOString() })
+      .eq("session_id", id)
+      .eq("user_id", user.id);
+
+    const { data: task } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("tasks_id", session.task_id)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!task) {
+      return NextResponse.json({ error: "לא מצאתי את המשימה להמלצה חלופית" }, { status: 404 });
+    }
+
+    const { data: allSessions } = await supabase
+      .from("task_sessions")
+      .select("*, tasks:task_id(tasks_id, task_title, course_name, deadline, priority, estimated_minutes)")
+      .eq("user_id", user.id);
+
+    let events: CalendarEvent[] = [];
+    try {
+      events = await getCalendarEvents(supabase, user.id);
+    } catch {
+      events = [];
+    }
+
+    const alternate = buildAlternateRecommendation({
+      task: task as DbTask,
+      events,
+      sessions: (allSessions ?? []) as DbTaskSession[]
+    });
+
+    if (!alternate) {
+      return NextResponse.json({
+        ok: true,
+        message: "דחיתי את ההצעה, אבל לא מצאתי חלון פנוי אחר. נסה לשנות דדליין או זמן משוער."
+      });
+    }
+
+    const { error: insertError } = await supabase.from("task_sessions").insert({
+      user_id: user.id,
+      task_id: alternate.task.tasks_id,
+      start_time: alternate.start.toISOString(),
+      end_time: alternate.end.toISOString(),
+      status: "pending",
+      reason: alternate.reason,
+      updated_at: new Date().toISOString()
+    });
+
+    if (insertError) {
+      return NextResponse.json({ error: "לא הצלחתי לשמור המלצה חלופית" }, { status: 500 });
+    }
+
     return NextResponse.json({
       ok: true,
-      message: action === "alternate" ? "דחיתי את ההצעה. אפשר ליצור המלצות חדשות." : "ההמלצה נדחתה"
+      message: `הצעתי זמן חדש: ${formatDateTime(alternate.start)} · ${formatTimeRange(alternate.start, alternate.end)}`
     });
   }
 
