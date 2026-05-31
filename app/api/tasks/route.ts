@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureUserProfile } from "@/lib/data";
+import { parseRequestJson } from "@/lib/api-json";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -11,7 +12,7 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "צריך להתחבר מחדש" }, { status: 401 });
   await ensureUserProfile(supabase, user);
 
-  const body = (await request.json()) as {
+  const body = await parseRequestJson<{
     task_title?: string;
     description?: string;
     course_name?: string;
@@ -20,7 +21,11 @@ export async function POST(request: Request) {
     estimated_minutes?: number;
     priority?: number;
     status?: string;
-  };
+  }>(request);
+
+  if (!body) {
+    return NextResponse.json({ error: "גוף הבקשה לא תקין" }, { status: 400 });
+  }
 
   if (!body.task_title?.trim()) {
     return NextResponse.json({ error: "צריך להזין כותרת למשימה" }, { status: 400 });

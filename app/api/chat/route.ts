@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureUserProfile, getRecentMessages } from "@/lib/data";
 import { generateAssistantReply } from "@/lib/ai";
 import { getCalendarEvents } from "@/lib/google-calendar";
+import { parseRequestJson } from "@/lib/api-json";
 import type { CalendarEvent, DbTask, DbTaskSession } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -14,8 +15,8 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "צריך להתחבר מחדש" }, { status: 401 });
   await ensureUserProfile(supabase, user);
 
-  const { message } = (await request.json()) as { message?: string };
-  const cleanMessage = message?.trim();
+  const body = await parseRequestJson<{ message?: string }>(request);
+  const cleanMessage = body?.message?.trim();
 
   if (!cleanMessage) {
     return NextResponse.json({ error: "צריך לכתוב הודעה" }, { status: 400 });
@@ -41,8 +42,12 @@ export async function POST(request: Request) {
       .eq("user_id", user.id)
   ]);
 
-  if (tasksResult.error) throw new Error(tasksResult.error.message);
-  if (sessionsResult.error) throw new Error(sessionsResult.error.message);
+  if (tasksResult.error) {
+    return NextResponse.json({ error: "לא הצלחתי לטעון משימות" }, { status: 500 });
+  }
+  if (sessionsResult.error) {
+    return NextResponse.json({ error: "לא הצלחתי לטעון המלצות" }, { status: 500 });
+  }
 
   let events: CalendarEvent[] = [];
   try {

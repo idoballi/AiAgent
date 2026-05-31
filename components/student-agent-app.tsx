@@ -90,6 +90,23 @@ function StatusBadge({ status }: { status: string | null | undefined }) {
   return <span className={`badge ${classForStatus(status)}`}>{labelForStatus(status)}</span>;
 }
 
+function DeleteButton({
+  label,
+  onClick,
+  disabled
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button className="button delete compact" type="button" onClick={onClick} disabled={disabled}>
+      <Trash2 size={15} />
+      {label}
+    </button>
+  );
+}
+
 async function readJson<T>(response: Response, fallbackMessage: string): Promise<T> {
   const text = await response.text();
   let payload: unknown = {};
@@ -333,34 +350,41 @@ export function StudentAgentApp({
     });
   }
 
-  function renderTask(task: DbTask) {
+  function renderTask(task: DbTask, compact = false) {
+    if (compact) {
+      return (
+        <div className="preview-item" key={task.tasks_id}>
+          <div className="preview-item-content">
+            <strong>{task.task_title || "משימה ללא כותרת"}</strong>
+            <div className="meta">
+              <span>דדליין: {formatDateTime(task.deadline)}</span>
+              {task.course_name ? <span>{task.course_name}</span> : null}
+            </div>
+          </div>
+          <StatusBadge status={task.status} />
+        </div>
+      );
+    }
+
     return (
-      <article className="row" key={task.tasks_id}>
-        <div className="row-title">
+      <article className="item-card" key={task.tasks_id}>
+        <div className="item-head">
           <strong>{task.task_title || "משימה ללא כותרת"}</strong>
           <div className="row-actions">
             <StatusBadge status={task.status} />
-            <button
-              className="button danger compact-button"
-              type="button"
-              onClick={() => deleteTask(task)}
-              disabled={loading}
-            >
-              <Trash2 size={16} />
-              מחק משימה
-            </button>
+            <DeleteButton label="מחק משימה" onClick={() => deleteTask(task)} disabled={loading} />
           </div>
         </div>
         {task.description ? <div className="muted">{task.description}</div> : null}
         <div className="meta">
           <span>דדליין: {formatDateTime(task.deadline)}</span>
-          <span>זמן משוער: {task.estimated_minutes || 60} דקות</span>
+          <span>{task.estimated_minutes || 60} דקות</span>
           <span>עדיפות: {task.priority || 3}</span>
-          {task.course_name ? <span>קורס: {task.course_name}</span> : null}
+          {task.course_name ? <span>{task.course_name}</span> : null}
         </div>
-        <div className="recommendation-actions">
+        <div className="action-row">
           <button
-            className="button secondary"
+            className="button secondary compact"
             type="button"
             onClick={() => updateTaskStatus(task, "in_progress")}
             disabled={loading}
@@ -368,12 +392,12 @@ export function StudentAgentApp({
             בתהליך
           </button>
           <button
-            className="button success"
+            className="button success compact"
             type="button"
             onClick={() => updateTaskStatus(task, "completed")}
             disabled={loading}
           >
-            <CheckCircle2 size={16} />
+            <CheckCircle2 size={15} />
             הושלם
           </button>
         </div>
@@ -383,55 +407,55 @@ export function StudentAgentApp({
 
   function renderRecommendation(session: DbTaskSession) {
     return (
-      <article className="row" key={session.session_id}>
-        <div className="row-title">
+      <article className="item-card" key={session.session_id}>
+        <div className="item-head">
           <strong>{session.tasks?.task_title || "סשן למידה"}</strong>
           <StatusBadge status={session.status} />
         </div>
         <div className="meta">
           <span>
             {session.start_time && session.end_time
-              ? `${formatDateTime(session.start_time)} | ${formatTimeRange(session.start_time, session.end_time)}`
+              ? `${formatDateTime(session.start_time)} · ${formatTimeRange(session.start_time, session.end_time)}`
               : "לא נקבע זמן"}
           </span>
-          {session.tasks?.course_name ? <span>קורס: {session.tasks.course_name}</span> : null}
+          {session.tasks?.course_name ? <span>{session.tasks.course_name}</span> : null}
         </div>
-        {session.reason ? <div className="notice">{session.reason}</div> : null}
-        <div className="recommendation-actions">
+        {session.reason ? <div className="reason-box">{session.reason}</div> : null}
+        <div className="action-row">
           {session.status === "pending" ? (
             <>
               <button
-                className="button success"
+                className="button success compact"
                 type="button"
                 onClick={() => recommendationAction(session, "approve")}
                 disabled={loading}
               >
-                <CheckCircle2 size={16} />
+                <CheckCircle2 size={15} />
                 אשר שיבוץ
               </button>
               <button
-                className="button danger"
+                className="button secondary compact"
                 type="button"
                 onClick={() => recommendationAction(session, "reject")}
                 disabled={loading}
               >
-                <XCircle size={16} />
+                <XCircle size={15} />
                 דחה
               </button>
               <button
-                className="button secondary"
+                className="button secondary compact"
                 type="button"
                 onClick={() => recommendationAction(session, "alternate")}
                 disabled={loading}
               >
-                <RefreshCcw size={16} />
+                <RefreshCcw size={15} />
                 הצע זמן אחר
               </button>
             </>
           ) : null}
           {session.status === "scheduled" ? (
             <button
-              className="button secondary"
+              className="button secondary compact"
               type="button"
               onClick={() => recommendationAction(session, "complete")}
               disabled={loading}
@@ -454,7 +478,7 @@ export function StudentAgentApp({
               <ListChecks size={20} />
             </div>
             <div className="metric">{upcomingTasks.length}</div>
-            <div className="muted">משימות פתוחות עם דדליין קרוב.</div>
+            <div className="muted">משימות פתוחות שדורשות תשומת לב.</div>
           </div>
           <div className="dashboard-card">
             <div className="card-head">
@@ -494,7 +518,11 @@ export function StudentAgentApp({
               </button>
             </div>
             <div className="list">
-              {dashboardTasks.length ? dashboardTasks.map(renderTask) : <EmptyState>אין עדיין משימות</EmptyState>}
+              {dashboardTasks.length ? (
+                dashboardTasks.map((task) => renderTask(task, true))
+              ) : (
+                <EmptyState>אין עדיין משימות — הוסף משימה ראשונה</EmptyState>
+              )}
             </div>
           </div>
 
@@ -560,7 +588,7 @@ export function StudentAgentApp({
             </div>
           </div>
           <div className="list">
-            {state.tasks.length ? state.tasks.map(renderTask) : <EmptyState>אין עדיין משימות</EmptyState>}
+            {state.tasks.length ? state.tasks.map((task) => renderTask(task)) : <EmptyState>אין עדיין משימות</EmptyState>}
           </div>
         </div>
 
@@ -692,30 +720,18 @@ export function StudentAgentApp({
           <div className="calendar-list">
             {state.calendarEvents.length ? (
               state.calendarEvents.map((event) => (
-                <article className="row" key={event.id}>
-                  <div className="row-title">
+                <article className="item-card" key={event.id}>
+                  <div className="item-head">
                     <strong>{event.summary}</strong>
-                    <button
-                      aria-label={`מחק את ${event.summary}`}
-                      className="button danger calendar-delete-button"
-                      disabled={loading}
+                    <DeleteButton
+                      label="מחק אירוע"
                       onClick={() => deleteCalendarEvent(event)}
-                      title="מחק אירוע"
-                      type="button"
-                    >
-                      <Trash2 size={16} />
-                      מחק
-                    </button>
+                      disabled={loading}
+                    />
                   </div>
                   <div className="meta">
                     <span>{formatDateTime(event.start)}</span>
                     <span>{formatTimeRange(event.start, event.end)}</span>
-                  </div>
-                  <div className="recommendation-actions">
-                    <button className="button danger" type="button" onClick={() => deleteCalendarEvent(event)} disabled={loading}>
-                      <Trash2 size={16} />
-                      מחק אירוע
-                    </button>
                   </div>
                 </article>
               ))
@@ -838,7 +854,7 @@ export function StudentAgentApp({
             />
           ))}
         </nav>
-        <div className="sidebar-footer">המלצות נשמרות ב-Supabase, ואירועים נוצרים רק אחרי אישור.</div>
+        <div className="sidebar-footer">אירועים ביומן נוצרים רק אחרי לחיצה על &quot;אשר שיבוץ&quot;.</div>
       </aside>
 
       <main className="main">
@@ -854,8 +870,10 @@ export function StudentAgentApp({
         </nav>
         <header className="topbar">
           <div>
-            <h1>שלום, טוב שחזרת</h1>
-            <p>כאן מנהלים משימות, צ׳אט, המלצות ויומן במקום אחד.</p>
+            <h1>שלום!</h1>
+            <p>
+              {userEmail} · ניהול משימות, יומן והמלצות במקום אחד
+            </p>
           </div>
           <div className="user-actions">
             <button className="button secondary" type="button" onClick={() => runAction(refreshState)} disabled={loading}>

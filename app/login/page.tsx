@@ -1,6 +1,8 @@
 import { Bot, CalendarCheck, Clock, ListChecks } from "lucide-react";
 import { AuthPanel } from "@/components/auth-panel";
 
+export const dynamic = "force-dynamic";
+
 export default function LoginPage() {
   return (
     <main className="auth-page page">

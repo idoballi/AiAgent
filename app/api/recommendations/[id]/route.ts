@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createCalendarStudyEvent } from "@/lib/google-calendar";
+import { parseRequestJson } from "@/lib/api-json";
 import type { DbTaskSession } from "@/lib/types";
 
 type Params = {
@@ -16,7 +17,8 @@ export async function PATCH(request: Request, { params }: Params) {
 
   if (!user) return NextResponse.json({ error: "צריך להתחבר מחדש" }, { status: 401 });
 
-  const { action } = (await request.json()) as { action?: "approve" | "reject" | "alternate" | "complete" };
+  const body = await parseRequestJson<{ action?: "approve" | "reject" | "alternate" | "complete" }>(request);
+  const action = body?.action;
   if (!action) {
     return NextResponse.json({ error: "לא נבחרה פעולה" }, { status: 400 });
   }
@@ -56,27 +58,41 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json({ ok: true, message: "סומן כהושלם" });
   }
 
+  if (action !== "approve") {
+    return NextResponse.json({ error: "פעולה לא נכונה" }, { status: 400 });
+  }
+
   if (!session.start_time || !session.end_time) {
     return NextResponse.json({ error: "להמלצה חסר זמן התחלה או סיום" }, { status: 400 });
   }
 
   const taskTitle = session.tasks?.task_title || "סשן למידה";
-  const event = await createCalendarStudyEvent(supabase, user.id, {
-    title: `למידה: ${taskTitle}`,
-    description: session.reason || "סשן למידה שנוצר דרך סוכן הלימודים החכם.",
-    start: session.start_time,
-    end: session.end_time
-  });
 
-  await supabase
-    .from("task_sessions")
-    .update({
-      status: "scheduled",
-      google_calendar_event_id: event.id,
-      updated_at: new Date().toISOString()
-    })
-    .eq("session_id", id)
-    .eq("user_id", user.id);
+  try {
+    const event = await createCalendarStudyEvent(supabase, user.id, {
+      title: `למידה: ${taskTitle}`,
+      description: session.reason || "סשן למידה שנוצר דרך סוכן הלימודים החכם.",
+      start: session.start_time,
+      end: session.end_time
+    });
 
-  return NextResponse.json({ ok: true, message: "השיבוץ אושר ונוצר אירוע ביומן" });
+    await supabase
+      .from("task_sessions")
+      .update({
+        status: "scheduled",
+        google_calendar_event_id: event.id,
+        updated_at: new Date().toISOString()
+      })
+      .eq("session_id", id)
+      .eq("user_id", user.id);
+
+    return NextResponse.json({ ok: true, message: "השיבוץ אושר ונוצר אירוע ביומן" });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "לא הצלחתי ליצור אירוע ביומן"
+      },
+      { status: 500 }
+    );
+  }
 }

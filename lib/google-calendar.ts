@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseResponseJson } from "@/lib/api-json";
 import { getTimeZone } from "@/lib/env";
 import type { CalendarEvent, CalendarStatus } from "@/lib/types";
 
@@ -62,7 +63,10 @@ async function refreshAccessToken(supabase: SupabaseClient, userId: string, refr
     throw new Error("לא הצלחתי לרענן את החיבור ל-Google Calendar");
   }
 
-  const payload = (await response.json()) as { access_token?: string };
+  const payload = await parseResponseJson<{ access_token?: string }>(
+    response,
+    "Google לא החזיר תשובה תקינה לרענון האסימון"
+  );
   if (!payload.access_token) {
     throw new Error("Google לא החזיר אסימון גישה חדש");
   }
@@ -141,7 +145,10 @@ export async function getCalendarEvents(supabase: SupabaseClient, userId: string
       throw new Error("לא הצלחתי לקרוא אירועים מ-Google Calendar");
     }
 
-    const payload = (await response.json()) as { items?: unknown[] };
+    const payload = await parseResponseJson<{ items?: unknown[] }>(
+      response,
+      "Google Calendar החזיר תשובה לא תקינה"
+    );
     return (payload.items ?? [])
       .map((item) => toCalendarEvent(item as Parameters<typeof toCalendarEvent>[0]))
       .filter((event): event is CalendarEvent => Boolean(event));
@@ -187,7 +194,7 @@ export async function createCalendarStudyEvent(
       throw new Error("לא הצלחתי ליצור אירוע ב-Google Calendar");
     }
 
-    return (await response.json()) as { id: string };
+    return await parseResponseJson<{ id: string }>(response, "Google Calendar החזיר תשובה לא תקינה");
   });
 }
 export async function deleteCalendarEvent(supabase: SupabaseClient, userId: string, eventId: string) {

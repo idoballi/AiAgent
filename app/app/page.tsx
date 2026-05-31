@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureUserProfile, getAppState } from "@/lib/data";
 import { StudentAgentApp } from "@/components/student-agent-app";
 
+export const dynamic = "force-dynamic";
+
 export default async function AppPage() {
   const supabase = await createClient();
   const {
