@@ -190,3 +190,30 @@ export async function createCalendarStudyEvent(
     return (await response.json()) as { id: string };
   });
 }
+export async function deleteCalendarEvent(supabase: SupabaseClient, userId: string, eventId: string) {
+  return withGoogleToken(supabase, userId, async (accessToken) => {
+    const response = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      }
+    );
+
+    if (response.status === 401) {
+      throw new Error("TOKEN_EXPIRED");
+    }
+
+    if (response.status === 404 || response.status === 410) {
+      return true;
+    }
+
+    if (!response.ok) {
+      throw new Error("לא הצלחתי למחוק את האירוע מ-Google Calendar");
+    }
+
+    return true;
+  });
+}
