@@ -280,7 +280,7 @@ export function StudentAgentApp({
   async function deleteTask(task: DbTask) {
     const taskTitle = task.task_title || "משימה ללא כותרת";
     const confirmed = window.confirm(
-      `למחוק את המשימה "${taskTitle}"? אם יש לה שיבוץ ביומן, גם האירוע ביומן יימחק.`
+      `למחוק את המשימה "${taskTitle}"? אם יש לה שיבוץ ביומן, גם האירוע ביומן י.`
     );
     if (!confirmed) return;
 

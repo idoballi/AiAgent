@@ -13,3 +13,33 @@ export function getRequiredEnv(name: string) {
   }
   return value;
 }
+
+function normalizeSecret(value: string | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim() || null;
+  }
+  return trimmed;
+}
+
+/** Reads OpenAI key from server env (never use NEXT_PUBLIC_* for secrets). */
+export function getOpenAiApiKey() {
+  return (
+    normalizeSecret(process.env.OPENAI_API_KEY) ||
+    normalizeSecret(process.env.OPENAI_KEY) ||
+    null
+  );
+}
+
+export function getOpenAiModel() {
+  return normalizeSecret(process.env.OPENAI_MODEL) || "gpt-4o-mini";
+}
+
+export function isOpenAiConfigured() {
+  return Boolean(getOpenAiApiKey());
+}

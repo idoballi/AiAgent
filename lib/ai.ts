@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { CalendarEvent, DbMessage, DbTask, DbTaskSession } from "@/lib/types";
 import { CHAT_SYSTEM_PROMPT } from "@/lib/ai-prompt";
+import { getOpenAiApiKey, getOpenAiModel } from "@/lib/env";
 
 function isSmallTalk(message: string) {
   const normalized = message.trim().toLowerCase();
@@ -80,16 +81,17 @@ export async function generateAssistantReply(input: {
     return { reply: smallTalkReply(input.userMessage), usedOpenAi: false };
   }
 
-  if (!process.env.OPENAI_API_KEY) {
+  const apiKey = getOpenAiApiKey();
+  if (!apiKey) {
     return {
       reply:
-        "אין מפתח OpenAI בשרת (OPENAI_API_KEY). הוסף אותו ב-Vercel כדי לקבל תשובות חכמות. בינתיים: ספר לי במשפט מה אתה צריך — משימה, דדליין, או שיבוץ — ואנחה אותך בלשונית המתאימה.",
+        "השרת לא רואה מפתח OpenAI. ב-Vercel: Settings → Environment Variables → OPENAI_API_KEY (בלי NEXT_PUBLIC), סמן Production, ואז Deploy מחדש. בינתיים אפשר לעבוד עם משימות והמלצות בלשוניות המתאימות.",
       usedOpenAi: false
     };
   }
 
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const client = new OpenAI({ apiKey });
+  const model = getOpenAiModel();
 
   const history = input.recentMessages
     .filter((message) => message.chatInput?.trim())
@@ -117,12 +119,20 @@ export async function generateAssistantReply(input: {
     if (text) {
       return { reply: text, usedOpenAi: true };
     }
-  } catch {
-    // fall through
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "";
+    const hint = detail.includes("model")
+      ? "ייתכן ש-OPENAI_MODEL לא נתמך — נסה gpt-4o-mini ב-Vercel."
+      : "בדוק שהמפתח תקין ושבוצע Deploy אחרי הוספת המשתנה.";
+
+    return {
+      reply: `לא הצלחתי להתחבר ל-OpenAI. ${hint}`,
+      usedOpenAi: false
+    };
   }
 
   return {
-    reply: "לא הצלחתי להתחבר ל-OpenAI כרגע. נסה שוב בעוד רגע, או בדוק ש-OPENAI_API_KEY מוגדר ב-Vercel.",
+    reply: "לא התקבלה תשובה מ-OpenAI. נסה שוב בעוד רגע.",
     usedOpenAi: false
   };
 }
