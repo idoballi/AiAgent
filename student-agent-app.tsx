@@ -711,6 +711,12 @@ export function StudentAgentApp({
                     <span>{formatDateTime(event.start)}</span>
                     <span>{formatTimeRange(event.start, event.end)}</span>
                   </div>
+                  <div className="recommendation-actions">
+                    <button className="button danger" type="button" onClick={() => deleteCalendarEvent(event)} disabled={loading}>
+                      <Trash2 size={16} />
+                      מחק אירוע
+                    </button>
+                  </div>
                 </article>
               ))
             ) : state.calendarStatus.connected ? (
