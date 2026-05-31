@@ -653,13 +653,14 @@ export function StudentAgentApp({
                     <strong>{event.summary}</strong>
                     <button
                       aria-label={`מחק את ${event.summary}`}
-                      className="button danger icon-button"
+                      className="button danger calendar-delete-button"
                       disabled={loading}
                       onClick={() => deleteCalendarEvent(event)}
                       title="מחק אירוע"
                       type="button"
                     >
                       <Trash2 size={16} />
+                      מחק
                     </button>
                   </div>
                   <div className="meta">

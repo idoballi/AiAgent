@@ -267,6 +267,12 @@ a {
   width: 36px;
 }
 
+.calendar-delete-button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 7px 10px;
+}
+
 .app-layout {
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
