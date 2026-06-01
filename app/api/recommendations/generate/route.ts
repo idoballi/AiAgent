@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { buildStudyRecommendations, rankTasks } from "@/lib/scheduling";
+import { getRecentMessages } from "@/lib/data";
+import { generateStudyRecommendations } from "@/lib/ai-scheduling";
+import { rankTasks } from "@/lib/scheduling";
 import { getCalendarEvents, getCalendarStatus } from "@/lib/google-calendar";
+import { isOpenAiConfigured } from "@/lib/env";
 import type { CalendarEvent, DbTask, DbTaskSession } from "@/lib/types";
 
 export async function POST() {
@@ -15,13 +18,14 @@ export async function POST() {
       return NextResponse.json({ error: "צריך להתחבר מחדש" }, { status: 401 });
     }
 
-    const [tasksResult, sessionsResult, calendarStatus] = await Promise.all([
+    const [tasksResult, sessionsResult, calendarStatus, recentMessages] = await Promise.all([
       supabase.from("tasks").select("*").eq("user_id", user.id),
       supabase
         .from("task_sessions")
         .select("*, tasks:task_id(tasks_id, task_title, course_name, deadline, priority, estimated_minutes)")
         .eq("user_id", user.id),
-      getCalendarStatus(supabase, user.id)
+      getCalendarStatus(supabase, user.id),
+      getRecentMessages(supabase, user.id, 15)
     ]);
 
     if (tasksResult.error) {
@@ -49,27 +53,28 @@ export async function POST() {
       try {
         events = await getCalendarEvents(supabase, user.id);
       } catch {
-        calendarWarning = "לא הצלחתי לקרוא את Google Calendar, אז ההמלצות מבוססות על שעות למידה כלליות.";
+        calendarWarning = "לא הצלחתי לקרוא את Google Calendar — ההמלצות מבוססות על שעות למידה כלליות.";
         events = [];
       }
     } else {
       calendarWarning =
-        "Google Calendar לא מחובר, אז ההמלצות מבוססות על שעות למידה כלליות. חבר את היומן להמלצות מדויקות יותר.";
+        "Google Calendar לא מחובר — ההמלצות מבוססות על שעות למידה כלליות. חבר את היומן לדיוק גבוה יותר.";
     }
 
-    const recommendations = buildStudyRecommendations({
+    const { recommendations, source } = await generateStudyRecommendations({
       tasks,
       sessions,
-      events
+      events,
+      recentMessages
     });
 
     if (recommendations.length === 0) {
       const pendingCount = sessions.filter((session) => session.status === "pending").length;
       const message = pendingCount
         ? "כבר יש המלצות ממתינות לכל המשימות הפתוחות. אשר, דחה, או בקש זמן אחר."
-        : "לא מצאתי חלון פנוי מתאים לפי הדדליין והזמן המשוער. נסה להאריך דדליין, לקצר זמן משוער, או לחבר את Google Calendar.";
+        : "לא מצאתי חלון פנוי מתאים. נסה לשנות דדליין, זמן משוער, או לכתוב בצ'אט מתי נוח לך ללמוד.";
 
-      return NextResponse.json({ created: 0, message, calendarWarning });
+      return NextResponse.json({ created: 0, message, calendarWarning, source });
     }
 
     const rows = recommendations.map((recommendation) => ({
@@ -86,23 +91,27 @@ export async function POST() {
 
     if (error) {
       return NextResponse.json(
-        {
-          error: "לא הצלחתי לשמור המלצות חדשות. נסה שוב בעוד רגע."
-        },
+        { error: "לא הצלחתי לשמור המלצות חדשות. נסה שוב בעוד רגע." },
         { status: 500 }
       );
     }
 
+    const sourceLabel =
+      source === "ai"
+        ? "נוצרו המלצות חדשות (AI — לפי יומן, משימות והודעות מהצ'אט)."
+        : isOpenAiConfigured()
+          ? "נוצרו המלצות (גיבוי אוטומטי — AI לא החזיר תשובה תקינה)."
+          : "נוצרו המלצות (אלגוריתם — הוסף OPENAI_API_KEY ב-Vercel לשיבוץ חכם).";
+
     return NextResponse.json({
       created: rows.length,
-      message: `נוצרו ${rows.length} המלצות חדשות לשיבוץ.`,
-      calendarWarning
+      message: sourceLabel,
+      calendarWarning,
+      source
     });
   } catch (error) {
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "לא הצלחתי ליצור המלצות"
-      },
+      { error: error instanceof Error ? error.message : "לא הצלחתי ליצור המלצות" },
       { status: 500 }
     );
   }

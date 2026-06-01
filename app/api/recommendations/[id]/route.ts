@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createCalendarStudyEvent, getCalendarEvents } from "@/lib/google-calendar";
 import { parseRequestJson } from "@/lib/api-json";
+import { getRecentMessages } from "@/lib/data";
+import { generateAlternateStudyRecommendation } from "@/lib/ai-scheduling";
 import { formatDateTime, formatTimeRange } from "@/lib/date-format";
-import { buildAlternateRecommendation } from "@/lib/scheduling";
 import type { CalendarEvent, DbTask, DbTaskSession } from "@/lib/types";
 
 type Params = {
@@ -66,10 +67,13 @@ export async function PATCH(request: Request, { params }: Params) {
       return NextResponse.json({ error: "לא מצאתי את המשימה להמלצה חלופית" }, { status: 404 });
     }
 
-    const { data: allSessions } = await supabase
-      .from("task_sessions")
-      .select("*, tasks:task_id(tasks_id, task_title, course_name, deadline, priority, estimated_minutes)")
-      .eq("user_id", user.id);
+    const [allSessionsResult, recentMessages] = await Promise.all([
+      supabase
+        .from("task_sessions")
+        .select("*, tasks:task_id(tasks_id, task_title, course_name, deadline, priority, estimated_minutes)")
+        .eq("user_id", user.id),
+      getRecentMessages(supabase, user.id, 15)
+    ]);
 
     let events: CalendarEvent[] = [];
     try {
@@ -78,16 +82,17 @@ export async function PATCH(request: Request, { params }: Params) {
       events = [];
     }
 
-    const alternate = buildAlternateRecommendation({
+    const { recommendation: alternate, source } = await generateAlternateStudyRecommendation({
       task: task as DbTask,
       events,
-      sessions: (allSessions ?? []) as DbTaskSession[]
+      sessions: (allSessionsResult.data ?? []) as DbTaskSession[],
+      recentMessages
     });
 
     if (!alternate) {
       return NextResponse.json({
         ok: true,
-        message: "דחיתי את ההצעה, אבל לא מצאתי חלון פנוי אחר. נסה לשנות דדליין או זמן משוער."
+        message: "דחיתי את ההצעה, אבל לא מצאתי חלון פנוי אחר. נסה לכתוב בצ'אט מתי נוח לך, או לשנות דדליין."
       });
     }
 
@@ -105,9 +110,10 @@ export async function PATCH(request: Request, { params }: Params) {
       return NextResponse.json({ error: "לא הצלחתי לשמור המלצה חלופית" }, { status: 500 });
     }
 
+    const aiNote = source === "ai" ? " (AI)" : "";
     return NextResponse.json({
       ok: true,
-      message: `הצעתי זמן חדש: ${formatDateTime(alternate.start)} · ${formatTimeRange(alternate.start, alternate.end)}`
+      message: `הצעתי זמן חדש${aiNote}: ${formatDateTime(alternate.start)} · ${formatTimeRange(alternate.start, alternate.end)}`
     });
   }
 

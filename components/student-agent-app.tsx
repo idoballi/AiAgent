@@ -592,7 +592,7 @@ export function StudentAgentApp({
       <section className="panel chat-shell">
         <div className="chat-header">
           <h2>צ׳אט עם הסוכן</h2>
-          <p className="muted">שאל כל שאלה — הסוכן משתמש ב-OpenAI אם המפתח מוגדר בשרת.</p>
+          <p className="muted">שאל כל שאלה — OpenAI. כתוב מתי נוח לך ללמוד; זה ישפיע על ההמלצות.</p>
         </div>
         <div className="messages">
           {state.messages.length ? (
@@ -808,7 +808,10 @@ export function StudentAgentApp({
         <div className="section-title">
           <div>
             <h2>המלצות</h2>
-            <p>הסוכן מציע זמנים לפי דדליין, עדיפות וזמינות. אפשר גם בלי יומן מחובר. אירוע נוצר רק אחרי לחיצה על &quot;אשר שיבוץ&quot;.</p>
+            <p>
+              AI בוחר זמן לפי יומן, משימות ומה שכתבת בצ&apos;אט (דורש OPENAI_API_KEY). אירוע נוצר רק
+              אחרי &quot;אשר שיבוץ&quot;.
+            </p>
           </div>
           <button className="button primary" type="button" onClick={generateRecommendations} disabled={loading}>
             <Sparkles size={18} />
