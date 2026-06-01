@@ -186,11 +186,38 @@ export function StudentAgentApp({
     [state.sessions]
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [openAiStatus, setOpenAiStatus] = useState<{
+    configured: boolean;
+    model: string;
+    hint: string;
+  } | null>(null);
 
   useEffect(() => {
     if (activeView !== "chat") return;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeView, state.messages.length, loading]);
+
+  useEffect(() => {
+    if (activeView !== "settings") return;
+    fetch("/api/health/openai")
+      .then((response) => response.json())
+      .then((payload) => {
+        if (typeof payload.configured === "boolean") {
+          setOpenAiStatus({
+            configured: payload.configured,
+            model: typeof payload.model === "string" ? payload.model : "gpt-4o-mini",
+            hint: typeof payload.hint === "string" ? payload.hint : ""
+          });
+        }
+      })
+      .catch(() => {
+        setOpenAiStatus({
+          configured: false,
+          model: "—",
+          hint: "לא הצלחתי לבדוק את סטטוס OpenAI"
+        });
+      });
+  }, [activeView]);
 
   async function refreshState() {
     const response = await fetch("/api/state");
@@ -814,6 +841,24 @@ export function StudentAgentApp({
               </div>
               <div className="meta">
                 <span>{userEmail}</span>
+              </div>
+            </div>
+            <div className="row">
+              <div className="row-title">
+                <strong>חיבור OpenAI (צ׳אט)</strong>
+                {openAiStatus ? (
+                  <span className={`badge ${openAiStatus.configured ? "completed" : "rejected"}`}>
+                    {openAiStatus.configured ? "מחובר" : "לא מחובר"}
+                  </span>
+                ) : null}
+              </div>
+              <div className="muted">
+                {openAiStatus
+                  ? openAiStatus.configured
+                    ? `השרת רואה מפתח. מודל: ${openAiStatus.model}. זה נפרד מ-Cursor/Codex.`
+                    : openAiStatus.hint ||
+                      "הוסף OPENAI_API_KEY ב-Vercel (לא ב-OPENAI_MODEL), ואז Redeploy."
+                  : "בודק חיבור..."}
               </div>
             </div>
             <div className="row">
