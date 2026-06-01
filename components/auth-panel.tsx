@@ -2,7 +2,7 @@
 
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarCheck, Mail } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -13,6 +13,7 @@ const authErrors: Record<string, string> = {
 
 export function AuthPanel() {
   const supabase = createClient();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,11 +21,25 @@ export function AuthPanel() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const oauthCode = searchParams.get("code");
+    if (oauthCode) {
+      router.replace(`/auth/callback?${searchParams.toString()}`);
+      return;
+    }
+
     const code = searchParams.get("error");
     if (code && authErrors[code]) {
       setError(authErrors[code]);
     }
-  }, [searchParams]);
+  }, [searchParams, router]);
+
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        router.replace("/app");
+      }
+    });
+  }, [router, supabase]);
 
   async function loginWithEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
