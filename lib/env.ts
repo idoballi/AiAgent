@@ -2,6 +2,12 @@ export function getBaseUrl() {
   return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "http://localhost:3000";
 }
 
+/** Base URL from the incoming request (preferred for auth redirects on custom domains). */
+export function getBaseUrlFromRequest(request: Request) {
+  const url = new URL(request.url);
+  return `${url.protocol}//${url.host}`;
+}
+
 export function getTimeZone() {
   return process.env.APP_TIME_ZONE || "Asia/Jerusalem";
 }
