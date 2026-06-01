@@ -1,16 +1,30 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CalendarCheck, Mail } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
+const authErrors: Record<string, string> = {
+  missing_code: "חסר קוד התחברות. ודא שב-Supabase מוגדר Redirect: https://automationsstudypilot.tech/auth/callback",
+  auth_failed: "ההתחברות נכשלה. נסה שוב או בדוק הגדרות Google ב-Supabase."
+};
+
 export function AuthPanel() {
   const supabase = createClient();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const code = searchParams.get("error");
+    if (code && authErrors[code]) {
+      setError(authErrors[code]);
+    }
+  }, [searchParams]);
 
   async function loginWithEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

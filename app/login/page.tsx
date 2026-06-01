@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Bot, CalendarCheck, Clock, ListChecks } from "lucide-react";
 import { AuthPanel } from "@/components/auth-panel";
 
@@ -38,7 +39,9 @@ export default function LoginPage() {
           </div>
         </div>
       </section>
-      <AuthPanel />
+      <Suspense fallback={null}>
+        <AuthPanel />
+      </Suspense>
     </main>
   );
 }
