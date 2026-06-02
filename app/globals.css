@@ -653,6 +653,24 @@ a {
   font-size: 0.925rem;
 }
 
+.modal-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 50;
+}
+
+.modal {
+  max-height: min(90vh, 900px);
+  max-width: 560px;
+  overflow: auto;
+  width: 100%;
+}
+
 .mobile-nav {
   display: none;
 }

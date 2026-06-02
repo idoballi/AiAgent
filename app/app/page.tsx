@@ -1,6 +1,6 @@
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ensureUserProfile, getAppState } from "@/lib/data";
+import { HomeLanding } from "@/components/home-landing";
 import { StudentAgentApp } from "@/components/student-agent-app";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export default async function AppPage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login");
+    return <HomeLanding />;
   }
 
   await ensureUserProfile(supabase, user);

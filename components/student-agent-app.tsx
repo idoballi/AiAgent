@@ -16,11 +16,13 @@ import {
   RefreshCcw,
   Send,
   Settings,
+  Pencil,
   Sparkles,
   Trash2,
   XCircle
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { getAuthCallbackUrl } from "@/lib/public-url";
 import { formatDateTime, formatTimeRange } from "@/lib/date-format";
 import type { AppState, CalendarEvent, DbTask, DbTaskSession } from "@/lib/types";
 
@@ -71,6 +73,41 @@ function isUpcoming(task: DbTask) {
   if (task.status === "completed" || task.status === "done") return false;
   if (!task.deadline) return true;
   return new Date(task.deadline) >= new Date();
+}
+
+type TaskFormState = {
+  task_title: string;
+  description: string;
+  course_name: string;
+  task_type: string;
+  deadline: string;
+  estimated_minutes: number;
+  priority: number;
+  status: string;
+};
+
+const emptyTaskForm = (): TaskFormState => ({
+  task_title: "",
+  description: "",
+  course_name: "",
+  task_type: "assignment",
+  deadline: "",
+  estimated_minutes: 90,
+  priority: 3,
+  status: "open"
+});
+
+function taskToForm(task: DbTask): TaskFormState {
+  return {
+    task_title: task.task_title || "",
+    description: task.description || "",
+    course_name: task.course_name || "",
+    task_type: task.task_type || "assignment",
+    deadline: task.deadline || "",
+    estimated_minutes: task.estimated_minutes ?? 90,
+    priority: task.priority ?? 3,
+    status: task.status || "open"
+  };
 }
 
 function toLocalInputValue(value: string | null) {
@@ -158,16 +195,9 @@ export function StudentAgentApp({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
-  const [taskForm, setTaskForm] = useState({
-    task_title: "",
-    description: "",
-    course_name: "",
-    task_type: "assignment",
-    deadline: "",
-    estimated_minutes: 90,
-    priority: 3,
-    status: "open"
-  });
+  const [taskForm, setTaskForm] = useState<TaskFormState>(emptyTaskForm);
+  const [editingTask, setEditingTask] = useState<DbTask | null>(null);
+  const [editForm, setEditForm] = useState<TaskFormState>(emptyTaskForm);
 
   const supabase = createClient();
 
@@ -249,7 +279,7 @@ export function StudentAgentApp({
     const { error: authError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/app`,
+        redirectTo: getAuthCallbackUrl("/app"),
         scopes:
           "email profile https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
         queryParams: {
@@ -278,17 +308,34 @@ export function StudentAgentApp({
         })
       });
       await readJson<DbTask>(response, "לא הצלחתי להוסיף משימה");
-      setTaskForm({
-        task_title: "",
-        description: "",
-        course_name: "",
-        task_type: "assignment",
-        deadline: "",
-        estimated_minutes: 90,
-        priority: 3,
-        status: "open"
-      });
+      setTaskForm(emptyTaskForm());
       setNotice("המשימה נשמרה. כדי ליצור אירוע ביומן צריך ליצור המלצה ואז לאשר שיבוץ.");
+    });
+  }
+
+  function openEditTask(task: DbTask) {
+    setEditingTask(task);
+    setEditForm(taskToForm(task));
+  }
+
+  async function submitEditTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingTask) return;
+
+    await runAction(async () => {
+      const response = await fetch(`/api/tasks/${editingTask.tasks_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...editForm,
+          deadline: editForm.deadline ? new Date(editForm.deadline).toISOString() : null,
+          estimated_minutes: Number(editForm.estimated_minutes),
+          priority: Number(editForm.priority)
+        })
+      });
+      await readJson<DbTask>(response, "לא הצלחתי לעדכן את המשימה");
+      setEditingTask(null);
+      setNotice("המשימה עודכנה");
     });
   }
 
@@ -307,7 +354,7 @@ export function StudentAgentApp({
   async function deleteTask(task: DbTask) {
     const taskTitle = task.task_title || "משימה ללא כותרת";
     const confirmed = window.confirm(
-      `למחוק את המשימה "${taskTitle}"? אם יש לה שיבוץ ביומן, גם האירוע ביומן י.`
+      `למחוק את המשימה "${taskTitle}"? אם יש לה שיבוץ ביומן, גם האירוע ביומן יימחק.`
     );
     if (!confirmed) return;
 
@@ -413,6 +460,15 @@ export function StudentAgentApp({
           <strong>{task.task_title || "משימה ללא כותרת"}</strong>
           <div className="row-actions">
             <StatusBadge status={task.status} />
+            <button
+              className="button secondary compact"
+              type="button"
+              onClick={() => openEditTask(task)}
+              disabled={loading}
+            >
+              <Pencil size={15} />
+              ערוך
+            </button>
             <DeleteButton label="מחק משימה" onClick={() => deleteTask(task)} disabled={loading} />
           </div>
         </div>
@@ -972,6 +1028,130 @@ export function StudentAgentApp({
 
         {renderActiveView()}
       </main>
+
+      {editingTask ? (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => setEditingTask(null)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setEditingTask(null);
+          }}
+        >
+          <div
+            className="modal panel"
+            role="dialog"
+            aria-labelledby="edit-task-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-title">
+              <h2 id="edit-task-title">עריכת משימה</h2>
+              <button className="button secondary compact" type="button" onClick={() => setEditingTask(null)}>
+                <XCircle size={18} />
+                סגור
+              </button>
+            </div>
+            <form className="task-form" onSubmit={submitEditTask}>
+              <div className="field wide">
+                <label htmlFor="edit-task-title-input">כותרת</label>
+                <input
+                  className="input"
+                  id="edit-task-title-input"
+                  value={editForm.task_title}
+                  onChange={(event) => setEditForm({ ...editForm, task_title: event.target.value })}
+                  required
+                />
+              </div>
+              <div className="field wide">
+                <label htmlFor="edit-task-description">תיאור</label>
+                <textarea
+                  className="textarea"
+                  id="edit-task-description"
+                  value={editForm.description}
+                  onChange={(event) => setEditForm({ ...editForm, description: event.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="edit-course">קורס / נושא</label>
+                <input
+                  className="input"
+                  id="edit-course"
+                  value={editForm.course_name}
+                  onChange={(event) => setEditForm({ ...editForm, course_name: event.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="edit-task-type">סוג</label>
+                <select
+                  className="select"
+                  id="edit-task-type"
+                  value={editForm.task_type}
+                  onChange={(event) => setEditForm({ ...editForm, task_type: event.target.value })}
+                >
+                  <option value="assignment">עבודה</option>
+                  <option value="homework">שיעורי בית</option>
+                  <option value="exam">מבחן</option>
+                  <option value="study">למידה</option>
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="edit-deadline">דדליין</label>
+                <input
+                  className="input"
+                  id="edit-deadline"
+                  type="datetime-local"
+                  value={toLocalInputValue(editForm.deadline)}
+                  onChange={(event) => setEditForm({ ...editForm, deadline: event.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="edit-duration">זמן משוער בדקות</label>
+                <input
+                  className="input"
+                  id="edit-duration"
+                  type="number"
+                  min="30"
+                  step="15"
+                  value={editForm.estimated_minutes}
+                  onChange={(event) =>
+                    setEditForm({ ...editForm, estimated_minutes: Number(event.target.value) })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="edit-priority">עדיפות</label>
+                <select
+                  className="select"
+                  id="edit-priority"
+                  value={editForm.priority}
+                  onChange={(event) => setEditForm({ ...editForm, priority: Number(event.target.value) })}
+                >
+                  <option value={1}>נמוכה</option>
+                  <option value={3}>רגילה</option>
+                  <option value={5}>גבוהה</option>
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="edit-status">סטטוס</label>
+                <select
+                  className="select"
+                  id="edit-status"
+                  value={editForm.status}
+                  onChange={(event) => setEditForm({ ...editForm, status: event.target.value })}
+                >
+                  <option value="open">פתוח</option>
+                  <option value="in_progress">בתהליך</option>
+                  <option value="completed">הושלם</option>
+                </select>
+              </div>
+              <button className="button primary wide" type="submit" disabled={loading}>
+                <Pencil size={18} />
+                שמור שינויים
+              </button>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -29,7 +29,7 @@ export default function AuthCallbackPage() {
           const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
           if (error) throw error;
         } else {
-          router.replace("/login?error=missing_code");
+          router.replace("/app?error=missing_code");
           return;
         }
 
@@ -41,7 +41,7 @@ export default function AuthCallbackPage() {
 
         router.replace(next.startsWith("/") ? next : "/app");
       } catch {
-        router.replace("/login?error=auth_failed");
+        router.replace("/app?error=auth_failed");
       }
     }
 

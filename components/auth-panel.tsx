@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarCheck, Mail } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { getAuthCallbackUrl } from "@/lib/public-url";
 
 const authErrors: Record<string, string> = {
   missing_code: "חסר קוד התחברות. ודא שב-Supabase מוגדר Redirect: https://automationsstudypilot.tech/auth/callback",
@@ -47,7 +48,7 @@ export function AuthPanel() {
     setError(null);
     setMessage(null);
 
-    const redirectTo = `${window.location.origin}/auth/callback?next=/app`;
+    const redirectTo = getAuthCallbackUrl("/app");
     const { error: authError } = await supabase.auth.signInWithOtp({
       email,
       options: {
@@ -70,7 +71,7 @@ export function AuthPanel() {
     const { error: authError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/app`,
+        redirectTo: getAuthCallbackUrl("/app"),
         scopes:
           "email profile https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
         queryParams: {

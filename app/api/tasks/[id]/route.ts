@@ -7,6 +7,17 @@ type Params = {
   params: Promise<{ id: string }>;
 };
 
+type TaskUpdateBody = {
+  status?: string;
+  task_title?: string;
+  description?: string;
+  course_name?: string;
+  task_type?: string;
+  deadline?: string | null;
+  estimated_minutes?: number;
+  priority?: number;
+};
+
 export async function PATCH(request: Request, { params }: Params) {
   const { id } = await params;
   const supabase = await createClient();
@@ -16,8 +27,51 @@ export async function PATCH(request: Request, { params }: Params) {
 
   if (!user) return NextResponse.json({ error: "צריך להתחבר מחדש" }, { status: 401 });
 
-  const body = await parseRequestJson<{ status?: string }>(request);
-  const status = body?.status;
+  const body = await parseRequestJson<TaskUpdateBody>(request);
+  if (!body) {
+    return NextResponse.json({ error: "גוף הבקשה לא תקין" }, { status: 400 });
+  }
+
+  const isFullUpdate =
+    body.task_title !== undefined ||
+    body.description !== undefined ||
+    body.course_name !== undefined ||
+    body.task_type !== undefined ||
+    body.deadline !== undefined ||
+    body.estimated_minutes !== undefined ||
+    body.priority !== undefined;
+
+  if (isFullUpdate) {
+    if (!body.task_title?.trim()) {
+      return NextResponse.json({ error: "צריך להזין כותרת למשימה" }, { status: 400 });
+    }
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .update({
+        task_title: body.task_title.trim(),
+        description: body.description?.trim() || null,
+        course_name: body.course_name?.trim() || null,
+        task_type: body.task_type || "assignment",
+        deadline: body.deadline ?? null,
+        estimated_minutes: body.estimated_minutes ?? 60,
+        priority: body.priority ?? 3,
+        status: body.status || "open",
+        updated_at: new Date().toISOString()
+      })
+      .eq("tasks_id", id)
+      .eq("user_id", user.id)
+      .select("*")
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: "לא הצלחתי לעדכן את המשימה" }, { status: 500 });
+    }
+
+    return NextResponse.json(data);
+  }
+
+  const status = body.status;
   if (!status) {
     return NextResponse.json({ error: "לא נבחר סטטוס" }, { status: 400 });
   }
