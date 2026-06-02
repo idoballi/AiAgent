@@ -45,7 +45,9 @@ async function refreshAccessToken(supabase: SupabaseClient, userId: string, refr
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-    throw new Error("חסרים GOOGLE_CLIENT_ID או GOOGLE_CLIENT_SECRET לרענון החיבור ליומן");
+    throw new Error(
+      "חסרים GOOGLE_CLIENT_ID או GOOGLE_CLIENT_SECRET ב-Vercel (לא ב-Supabase). אותם ערכים מ-Google Cloud → OAuth Client. אחרי הוספה: Redeploy."
+    );
   }
 
   const response = await fetch("https://oauth2.googleapis.com/token", {

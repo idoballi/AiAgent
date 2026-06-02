@@ -8,6 +8,11 @@ import {
   findFreeWindows,
   rankTasks
 } from "@/lib/scheduling";
+import {
+  extractStudyPreferences,
+  filterFreeWindowsByPreferences,
+  violatesStudyPreferences
+} from "@/lib/scheduling-preferences";
 import type { CalendarEvent, DbMessage, DbTask, DbTaskSession } from "@/lib/types";
 
 export type StudyRecommendation = {
@@ -74,6 +79,8 @@ function buildSchedulingUserPrompt(input: {
   mode: "generate" | "alternate";
   alternateTaskId?: string;
   now: Date;
+  preferencesSummary: string;
+  chatContext: string;
 }) {
   const openTasks = rankTasks(input.tasks);
   const tasksForPrompt =
@@ -113,12 +120,6 @@ function buildSchedulingUserPrompt(input: {
     )
     .join("\n");
 
-  const userMessages = input.recentMessages
-    .filter((message) => message.role === "user" && message.chatInput?.trim())
-    .slice(-12)
-    .map((message) => `- ${message.chatInput}`)
-    .join("\n");
-
   const modeInstruction =
     input.mode === "alternate"
       ? `הצע זמן חלופי אחד בלבד למשימה ${input.alternateTaskId}. חייב להיות שונה מכל זמן שנדחה.`
@@ -126,6 +127,12 @@ function buildSchedulingUserPrompt(input: {
 
   return `עכשיו: ${input.now.toISOString()}
 אזור זמן: ${getTimeZone()}
+
+הנחיות שיבוץ:
+${input.preferencesSummary}
+
+הודעות המשתמש בצ'אט (התייחס לזה בעדיפות):
+${input.chatContext}
 
 ${modeInstruction}
 
@@ -141,9 +148,6 @@ ${rejectedBlock || "אין"}
 חלונות פנויים (בחר רק מתוכם):
 ${formatFreeWindows(input.freeWindows) || "אין חלונות — השתמש בשעות 08:00-22:00 ב-7 הימים הקרובים"}
 
-מה שהסטודנט כתב בצ'אט (התאם משך וזמן לפי זה):
-${userMessages || "אין הודעות"}
-
 החזר JSON בלבד.`;
 }
 
@@ -157,7 +161,8 @@ function validateRecommendation(
   tasks: DbTask[],
   busy: Array<{ start: Date; end: Date }>,
   excluded: Array<{ start: Date; end: Date }>,
-  now: Date
+  now: Date,
+  preferences: ReturnType<typeof extractStudyPreferences>
 ): StudyRecommendation | null {
   const task = tasks.find((item) => item.tasks_id === row.task_id);
   if (!task || !row.start_iso || !row.end_iso) return null;
@@ -181,6 +186,8 @@ function validateRecommendation(
     if (overlaps(start, end, slot.start, slot.end)) return null;
   }
 
+  if (violatesStudyPreferences(start, end, preferences)) return null;
+
   const reason =
     typeof row.reason === "string" && row.reason.trim()
       ? row.reason.trim()
@@ -202,7 +209,9 @@ async function requestAiRecommendations(input: {
   if (!apiKey) return null;
 
   const now = input.now ?? new Date();
-  const freeWindows = findFreeWindows(input.events, input.sessions, 7, now);
+  const preferences = extractStudyPreferences(input.recentMessages);
+  const allFreeWindows = findFreeWindows(input.events, input.sessions, 7, now);
+  const freeWindows = filterFreeWindowsByPreferences(allFreeWindows, preferences);
   const client = new OpenAI({ apiKey });
   const model = getOpenAiModel();
 
@@ -216,7 +225,9 @@ async function requestAiRecommendations(input: {
           content: buildSchedulingUserPrompt({
             ...input,
             freeWindows,
-            now
+            now,
+            preferencesSummary: preferences.summaryForAi,
+            chatContext: preferences.chatContext
           })
         }
       ],
@@ -239,7 +250,14 @@ async function requestAiRecommendations(input: {
     const usedTasks = new Set<string>();
 
     for (const row of rows) {
-      const recommendation = validateRecommendation(row, input.tasks, busy, excluded, now);
+      const recommendation = validateRecommendation(
+        row,
+        input.tasks,
+        busy,
+        excluded,
+        now,
+        preferences
+      );
       if (!recommendation) continue;
       if (usedTasks.has(recommendation.task.tasks_id)) continue;
       validated.push(recommendation);
@@ -261,6 +279,8 @@ export async function generateStudyRecommendations(input: {
   recentMessages: DbMessage[];
   max?: number;
 }): Promise<{ recommendations: StudyRecommendation[]; source: "ai" | "algorithm" }> {
+  const preferences = extractStudyPreferences(input.recentMessages);
+
   const aiResults = await requestAiRecommendations({
     ...input,
     mode: "generate"
@@ -273,13 +293,15 @@ export async function generateStudyRecommendations(input: {
     };
   }
 
+  const algorithmResults = buildStudyRecommendations({
+    tasks: input.tasks,
+    events: input.events,
+    sessions: input.sessions,
+    max: input.max
+  }).filter((item) => !violatesStudyPreferences(item.start, item.end, preferences));
+
   return {
-    recommendations: buildStudyRecommendations({
-      tasks: input.tasks,
-      events: input.events,
-      sessions: input.sessions,
-      max: input.max
-    }),
+    recommendations: algorithmResults,
     source: "algorithm"
   };
 }

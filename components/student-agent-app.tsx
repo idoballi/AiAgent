@@ -592,7 +592,9 @@ export function StudentAgentApp({
       <section className="panel chat-shell">
         <div className="chat-header">
           <h2>צ׳אט עם הסוכן</h2>
-          <p className="muted">שאל כל שאלה — OpenAI. כתוב מתי נוח לך ללמוד; זה ישפיע על ההמלצות.</p>
+          <p className="muted">
+            כתוב מתי נוח לך ללמוד, כמה זמן, ומה לא מתאים — ההמלצות יתחשבו בזה (בלי כלל קבוע מראש).
+          </p>
         </div>
         <div className="messages">
           {state.messages.length ? (
@@ -809,8 +811,8 @@ export function StudentAgentApp({
           <div>
             <h2>המלצות</h2>
             <p>
-              AI בוחר זמן לפי יומן, משימות ומה שכתבת בצ&apos;אט (דורש OPENAI_API_KEY). אירוע נוצר רק
-              אחרי &quot;אשר שיבוץ&quot;.
+              AI בוחר זמן לפי יומן, משימות ומה שכתבת בצ&apos;אט — בלי כלל קבוע; רק לפי מה שאתה כותב
+              (למשל &quot;לא אחרי 20:00&quot;). אירוע נוצר רק אחרי &quot;אשר שיבוץ&quot;.
             </p>
           </div>
           <button className="button primary" type="button" onClick={generateRecommendations} disabled={loading}>
@@ -872,9 +874,18 @@ export function StudentAgentApp({
             </div>
             <div className="row">
               <div className="row-title">
+                <strong>Google Calendar (שרת)</strong>
+              </div>
+              <div className="muted">
+                התחברות עם Google שומרת חשבון. כדי לאשר שיבוץ ביומן צריך גם ב-Vercel: GOOGLE_CLIENT_ID
+                ו-GOOGLE_CLIENT_SECRET (מ-Google Cloud, אותו OAuth Client כמו ב-Supabase).
+              </div>
+            </div>
+            <div className="row">
+              <div className="row-title">
                 <strong>יצירת אירועים ביומן</strong>
               </div>
-              <div className="muted">המערכת מבקשת אישור מפורש לפני כל יצירת אירוע ב-Google Calendar.</div>
+              <div className="muted">אירוע נוצר רק אחרי לחיצה על &quot;אשר שיבוץ&quot;.</div>
             </div>
           </div>
         </div>
